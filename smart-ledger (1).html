@@ -1,0 +1,131 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Ledger</title><meta name="theme-color" content="#0b2545">
+<style>
+:root{--n:#0b2545;--g:#10b981;--r:#e11d48;--bg:#f3f5f8;--m:#64748b}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:#0f172a;padding-bottom:84px}
+header{background:var(--n);color:#fff;padding:16px 18px}header b{font-size:20px;letter-spacing:.5px}header small{display:block;opacity:.7;margin-top:2px}
+main{max-width:720px;margin:0 auto;padding:14px}.card{background:#fff;border-radius:16px;padding:14px;margin-bottom:12px;box-shadow:0 1px 4px #0b254512}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.k{font-size:12px;color:var(--m)}.v{font-size:18px;font-weight:700;margin-top:2px}
+.inc{color:var(--g)}.exp{color:var(--r)}h2{margin:6px 0 10px;font-size:17px;color:var(--n)}
+button{font:inherit;border:0;border-radius:12px;padding:13px 16px;font-weight:600;cursor:pointer;background:var(--n);color:#fff}
+.bi{background:var(--g)}.be{background:var(--r)}.bg{background:#e2e8f0;color:var(--n)}.big{width:100%;padding:20px;font-size:18px;margin-bottom:12px}
+input,select,textarea{width:100%;font:inherit;padding:12px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;margin:4px 0 10px}label{font-size:13px;color:var(--m)}
+.row{display:flex;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid #eef1f5;cursor:pointer}.row:last-child{border:0}
+.row small{color:var(--m);display:block}table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:8px 4px;text-align:right;border-bottom:1px solid #eef1f5}th:first-child,td:first-child{text-align:left}
+.flex{display:flex;gap:8px;align-items:center}.flex>*{flex:1}.flex input,.flex select{margin:0}
+nav{position:fixed;bottom:0;left:0;right:0;background:#fff;display:flex;border-top:1px solid #e2e8f0}
+nav a{flex:1;text-align:center;padding:10px 0;font-size:12px;color:var(--m);cursor:pointer}nav a.on{color:var(--g);font-weight:700}nav a i{display:block;font-style:normal;font-size:20px}
+#toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:var(--n);color:#fff;padding:10px 18px;border-radius:20px;display:none;z-index:9}
+.empty{text-align:center;color:var(--m);padding:22px}.ph{display:none}.tabs{display:flex;gap:6px;margin-bottom:10px}.tabs button{flex:1;padding:10px}
+@media print{header,nav,.np{display:none!important}.ph{display:block;margin-bottom:10px}body{background:#fff}.card{box-shadow:none}}
+</style></head><body>
+<header><b>SMART LEDGER</b><small id="sub">Simple Entries. Accurate Records. Smarter Business.</small></header>
+<main id="main"></main><nav id="nav"></nav><div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const today=()=>new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Colombo'});
+const dmy=d=>d.split('-').reverse().join('/');
+const num=c=>(c/100).toLocaleString('en-LK',{minimumFractionDigits:2,maximumFractionDigits:2}),rs=c=>'Rs. '+num(c);
+const addDays=(d,n)=>{const t=new Date(d+'T00:00:00Z');t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10)};
+const monthEnd=ym=>{const[y,m]=ym.split('-').map(Number);return new Date(Date.UTC(y,m,0)).toISOString().slice(0,10)};
+const sum=(r,t)=>r.filter(x=>x.type===t).reduce((a,x)=>a+x.cents,0);
+const toCents=s=>{if(!/^\d+(\.\d{1,2})?$/.test(s))return null;const[a,b='']=s.split('.');return parseInt(a)*100+parseInt((b+'00').slice(0,2))};
+const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2500)};
+const DEF={income:['Business Collection','Sales','Other'],expense:['Purchases','Transportation','Food','Employee Payments','Electricity','Water','Telephone / Internet','Rent','Maintenance','Other']};
+const ld=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}};
+const D={tx:ld('sl_tx',[]),cats:ld('sl_cats',DEF),biz:ld('sl_biz','My Business')};
+const persist=()=>{try{localStorage.setItem('sl_tx',JSON.stringify(D.tx));localStorage.setItem('sl_cats',JSON.stringify(D.cats));localStorage.setItem('sl_biz',JSON.stringify(D.biz));localStorage.setItem('sl_last',Date.now())}catch(e){toast('Could not save: storage full or blocked')}};
+const S={view:'home',date:today(),rep:{tab:'month',ym:today().slice(0,7),y:today().slice(0,4),from:today().slice(0,7)+'-01',to:today(),type:'',cat:'',pm:'',q:''}};
+const getTx=(f,t)=>D.tx.filter(x=>x.date>=f&&x.date<=t).sort((a,b)=>a.date.localeCompare(b.date)||a.at-b.at);
+const main=h=>$('#main').innerHTML=h;
+function chart(labels,inc,exp){const n=labels.length||1,W=Math.max(300,n*22),mx=Math.max(1,...inc,...exp),H=110,bw=Math.min(9,(W/n-4)/2);
+ let s=`<div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H+18}" width="${W}" style="min-width:100%">`;
+ labels.forEach((l,i)=>{const x=i*(W/n)+2,a=inc[i]/mx*H,b=exp[i]/mx*H;s+=`<rect x="${x}" y="${H-a}" width="${bw}" height="${a}" fill="#10b981" rx="2"/><rect x="${x+bw+1}" y="${H-b}" width="${bw}" height="${b}" fill="#e11d48" rx="2"/><text x="${x}" y="${H+13}" font-size="9" fill="#64748b">${l}</text>`});
+ return s+'</svg></div>'}
+const txRow=x=>`<div class="row" onclick="A.edit('${x.id}')"><div>${esc(x.desc)}<small>${dmy(x.date)} · ${esc(x.cat||'')} · ${x.pm}</small></div><b class="${x.type==='income'?'inc':'exp'}">${x.type==='income'?'+':'−'} ${rs(x.cents)}</b></div>`;
+const cards=(t,i,e)=>`<div class="card"><div class="k">${t}</div><div class="grid" style="margin-top:6px"><div><div class="k">Income</div><div class="v inc">${rs(i)}</div></div><div><div class="k">Expenses</div><div class="v exp">${rs(e)}</div></div></div><div class="k" style="margin-top:8px">Net Balance</div><div class="v" style="color:${i-e<0?'var(--r)':'var(--n)'}">${rs(i-e)}</div></div>`;
+
+function home(){const t=today(),ms=t.slice(0,7)+'-01',days=[...Array(7)].map((_,i)=>addDays(t,i-6)),td=getTx(t,t),mo=getTx(ms,monthEnd(t.slice(0,7))),r7=getTx(days[0],t);
+ const rec=ty=>[...D.tx].filter(x=>x.type===ty).sort((a,b)=>b.at-a.at).slice(0,5);
+ main(`<div class="card"><b>Welcome</b><div class="k">${dmy(t)}</div></div>
+ <div class="grid"><button class="bi big" onclick="A.new('income')">+ ADD INCOME</button><button class="be big" onclick="A.new('expense')">+ ADD EXPENSE</button></div>
+ ${cards("Today ("+td.length+" entries)",sum(td,'income'),sum(td,'expense'))}${cards('This Month',sum(mo,'income'),sum(mo,'expense'))}
+ <div class="card"><h2>Last 7 days</h2>${chart(days.map(d=>d.slice(8)),days.map(d=>sum(r7.filter(x=>x.date===d),'income')),days.map(d=>sum(r7.filter(x=>x.date===d),'expense')))}<div class="k">Green = income · Red = expenses</div></div>
+ <div class="card"><h2>Recent income</h2>${rec('income').map(txRow).join('')||'<div class="empty">No income recorded yet.</div>'}</div>
+ <div class="card"><h2>Recent expenses</h2>${rec('expense').map(txRow).join('')||'<div class="empty">No expenses recorded yet.</div>'}</div>`)}
+
+function ledger(){const d=S.date,r=getTx(d,d),i=sum(r,'income'),e=sum(r,'expense');
+ main(`<div class="card np"><div class="flex"><button class="bg" onclick="A.day(-1)">‹</button><input type="date" value="${d}" onchange="A.setDate(this.value)"><button class="bg" onclick="A.day(1)">›</button></div></div>
+ <div class="card"><h2>DAILY LEDGER – ${dmy(d)}</h2>${r.length?`<table><tr><th>Description</th><th>Income</th><th>Expense</th></tr>${r.map(x=>`<tr onclick="A.edit('${x.id}')" style="cursor:pointer"><td>${esc(x.desc)}</td><td class="inc">${x.type==='income'?num(x.cents):'-'}</td><td class="exp">${x.type==='expense'?num(x.cents):'-'}</td></tr>`).join('')}</table>`:'<div class="empty">No transactions recorded for this date.</div>'}</div>
+ ${cards('Summary',i,e)}<div class="grid np"><button class="bi" onclick="A.new('income')">+ INCOME</button><button class="be" onclick="A.new('expense')">+ EXPENSE</button></div>`)}
+
+function add(){main(`<h2>Add Entry</h2><button class="bi big" onclick="A.new('income')">+ ADD INCOME</button><button class="be big" onclick="A.new('expense')">+ ADD EXPENSE</button>`)}
+function form(){const{type,row}=S.f,x=row||{},inc=type==='income';
+ main(`<form class="card" onsubmit="A.save(event)"><h2 class="${inc?'inc':'exp'}">${row?'Edit':'Add'} ${inc?'Income':'Expense'}</h2>
+ <label>Date</label><input type="date" name="date" required value="${x.date||S.date}">
+ <label>Amount (LKR)</label><input name="amount" inputmode="decimal" required placeholder="0.00" value="${x.cents?(x.cents/100).toFixed(2):''}">
+ <label>Description</label><input name="desc" required value="${esc(x.desc)}">
+ <label>Category</label><select name="cat">${D.cats[type].map(c=>`<option ${c===x.cat?'selected':''}>${esc(c)}</option>`).join('')}</select>
+ <label>Payment Method</label><select name="pm">${['Cash','Bank Transfer','Card','Other'].map(m=>`<option ${m===x.pm?'selected':''}>${m}</option>`).join('')}</select>
+ ${inc?`<label>Customer name (optional)</label><input name="customer" value="${esc(x.customer)}"><label>Reference no. (optional)</label><input name="ref" value="${esc(x.ref)}">`:''}
+ <label>Notes (optional)</label><textarea name="notes" rows="2">${esc(x.notes)}</textarea>
+ <button class="${inc?'bi':'be'} big">${row?'SAVE CHANGES':inc?'SAVE INCOME':'SAVE EXPENSE'}</button>${row?'':`<button type="button" class="bg big" onclick="A.clearForm()">CLEAR FIELDS</button>`}<button type="button" class="bg big" onclick="A.go('ledger')">CANCEL</button>
+ ${row?`<button type="button" class="be big" onclick="A.del()">DELETE</button>`:''}</form>`)}
+
+function reports(){const R=S.rep;let from,to,title,keys;
+ if(R.tab==='month'){from=R.ym+'-01';to=monthEnd(R.ym);title='Monthly Ledger – '+R.ym.split('-').reverse().join('/');keys=[...Array(+to.slice(8))].map((_,i)=>R.ym+'-'+String(i+1).padStart(2,'0'))}
+ else if(R.tab==='year'){from=R.y+'-01-01';to=R.y+'-12-31';title='Yearly Ledger – '+R.y;keys=[...Array(12)].map((_,i)=>R.y+'-'+String(i+1).padStart(2,'0'))}
+ else{from=R.from;to=R.to;title='Report: '+dmy(from)+' to '+dmy(to)}
+ let r=getTx(from,to);if(R.tab==='custom')r=r.filter(x=>(!R.type||x.type===R.type)&&(!R.cat||x.cat===R.cat)&&(!R.pm||x.pm===R.pm)&&(!R.q||x.desc.toLowerCase().includes(R.q.toLowerCase())));
+ S.rows=r;S.title=title;const kf=x=>R.tab==='year'?x.date.slice(0,7):x.date;if(!keys)keys=[...new Set(r.map(kf))];
+ const g=keys.map(k=>{const q=r.filter(x=>kf(x)===k);return{k,i:sum(q,'income'),e:sum(q,'expense')}});
+ const hi=f=>{const m=g.reduce((a,b)=>f(b)>f(a)?b:a,g[0]);return m&&f(m)>0?m.k.split('-').reverse().join('/')+' ('+rs(f(m))+')':'-'};
+ const tab=(t,l)=>`<button class="${R.tab===t?'':'bg'}" onclick="A.rep('tab','${t}')">${l}</button>`,inp=(k,t)=>`<input type="${t}" value="${esc(R[k])}" onchange="A.rep('${k}',this.value)">`;
+ const allc=[...new Set([...D.cats.income,...D.cats.expense])];
+ main(`<div class="tabs np">${tab('month','Monthly')}${tab('year','Yearly')}${tab('custom','Custom')}</div>
+ <div class="card np">${R.tab==='month'?inp('ym','month'):R.tab==='year'?`<input type="number" value="${R.y}" onchange="A.rep('y',this.value)">`:`<div class="flex">${inp('from','date')}${inp('to','date')}</div>
+ <div class="flex" style="margin-top:8px"><select onchange="A.rep('type',this.value)"><option value="">All</option><option value="income" ${R.type==='income'?'selected':''}>Income</option><option value="expense" ${R.type==='expense'?'selected':''}>Expense</option></select>
+ <select onchange="A.rep('cat',this.value)"><option value="">All categories</option>${allc.map(n=>`<option ${n===R.cat?'selected':''}>${esc(n)}</option>`).join('')}</select>
+ <select onchange="A.rep('pm',this.value)"><option value="">Any payment</option>${['Cash','Bank Transfer','Card','Other'].map(m=>`<option ${m===R.pm?'selected':''}>${m}</option>`).join('')}</select></div>
+ <input placeholder="Search description…" value="${esc(R.q)}" style="margin-top:8px" onchange="A.rep('q',this.value)">`}</div>
+ <div class="ph"><h2>${esc(D.biz)} · SMART LEDGER</h2>${esc(title)} · Printed ${dmy(today())}</div>
+ ${cards(title,sum(r,'income'),sum(r,'expense'))}
+ <div class="card"><div class="k">Income entries: ${r.filter(x=>x.type==='income').length} · Expense entries: ${r.filter(x=>x.type==='expense').length}</div>
+ <div class="k">Highest income ${R.tab==='year'?'month':'day'}: ${hi(a=>a.i)}</div><div class="k">Highest expense ${R.tab==='year'?'month':'day'}: ${hi(a=>a.e)}</div></div>
+ ${R.tab!=='custom'?`<div class="card">${chart(g.map(a=>R.tab==='year'?a.k.slice(5):a.k.slice(8)),g.map(a=>a.i),g.map(a=>a.e))}<table><tr><th>${R.tab==='year'?'Month':'Day'}</th><th>Income</th><th>Expense</th><th>Net</th></tr>${g.filter(a=>a.i||a.e).map(a=>`<tr><td>${a.k.split('-').reverse().join('/')}</td><td class="inc">${num(a.i)}</td><td class="exp">${num(a.e)}</td><td>${num(a.i-a.e)}</td></tr>`).join('')}</table></div>`:''}
+ ${R.tab!=='year'?`<div class="card"><h2>Transactions</h2>${r.map(txRow).join('')||'<div class="empty">No matching transactions.</div>'}</div>`:''}
+ <div class="grid np"><button onclick="A.csv()">Export Excel (CSV)</button><button class="bg" onclick="print()">Save as PDF / Print</button></div>`)}
+
+function settings(){const last=localStorage.getItem('sl_last');
+ main(`<div class="card"><h2>Backup &amp; Restore</h2><div class="k" style="margin-bottom:8px">Data lives only in this browser. Download a backup regularly${last?' · last change '+new Date(+last).toLocaleString('en-LK',{timeZone:'Asia/Colombo'}):''}.</div>
+ <button class="big" onclick="A.backup()">Download Backup</button><label>Restore from backup file (replaces current data)</label><input type="file" accept=".json" onchange="A.restore(this.files[0])"></div>
+ <div class="card"><h2 class="exp">Clear All Entries</h2><div class="k" style="margin-bottom:8px">Permanently deletes every income and expense entry (${D.tx.length} saved). Categories and business name are kept. Download a backup first.</div><button class="be big" onclick="A.clearAll()">CLEAR ALL ENTRIES</button></div>
+ <div class="card"><h2>Business name</h2><input id="bn" value="${esc(D.biz)}"><button onclick="A.biz()">Save</button></div>
+ <div class="card"><h2>Add category</h2><select id="ck"><option value="income">Income</option><option value="expense">Expense</option></select><input id="cn" placeholder="Category name"><button onclick="A.cat()">Add</button></div>`)}
+
+const views={home,ledger,add,reports,settings,form};
+const tabs=[['home','⌂','Home'],['ledger','▤','Ledger'],['add','＋','Add Entry'],['reports','▥','Reports'],['settings','⚙','Settings']];
+function draw(){$('#sub').textContent=D.biz+' · Daily Income Ledger';$('#nav').innerHTML=tabs.map(([v,i,l])=>`<a class="${S.view===v?'on':''}" onclick="A.go('${v}')"><i>${i}</i>${l}</a>`).join('');views[S.view]()}
+const A={go(v){S.view=v;draw();scrollTo(0,0)},new(t){S.f={type:t};A.go('form')},edit(id){const x=D.tx.find(t=>t.id===id);S.f={type:x.type,row:x};A.go('form')},
+ day(n){S.date=addDays(S.date,n);draw()},setDate(v){if(v){S.date=v;draw()}},rep(k,v){S.rep[k]=v;draw()},
+ save(e){e.preventDefault();const f=new FormData(e.target),c=toCents(f.get('amount').trim().replace(/,/g,''));if(!c)return toast('Enter a valid amount');
+  const p={type:S.f.type,cents:c,date:f.get('date'),desc:f.get('desc').trim(),cat:f.get('cat'),pm:f.get('pm'),notes:f.get('notes')||'',customer:f.get('customer')||'',ref:f.get('ref')||''};
+  if(!p.desc)return toast('Description required');
+  if(S.f.row)Object.assign(S.f.row,p,{upd:Date.now()});else D.tx.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),at:Date.now(),...p});
+  persist();toast('Saved ✓');S.date=p.date;A.go('ledger')},
+ del(){if(!confirm('Delete this entry permanently? This cannot be undone.'))return;D.tx=D.tx.filter(t=>t.id!==S.f.row.id);persist();toast('Deleted');A.go('ledger')},
+ dl(name,txt,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type}));a.download=name;a.click()},
+ csv(){const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"',h=['Date','Type','Description','Category','Payment Method','Income (LKR)','Expense (LKR)','Notes'];
+  A.dl('smart-ledger-'+today()+'.csv','\ufeff'+[h.map(q).join(','),...S.rows.map(x=>[dmy(x.date),x.type,x.desc,x.cat,x.pm,x.type==='income'?(x.cents/100).toFixed(2):'',x.type==='expense'?(x.cents/100).toFixed(2):'',x.notes].map(q).join(','))].join('\n'),'text/csv')},
+ backup(){A.dl('smart-ledger-backup-'+today()+'.json',JSON.stringify(D),'application/json')},
+ restore(f){if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.tx)||!d.cats)throw 0;if(!confirm('Replace ALL current data with this backup?'))return;Object.assign(D,d);persist();toast('Restored ✓');draw()}catch{toast('Invalid backup file')}};r.readAsText(f)},
+ clearForm(){const f=document.querySelector('form');f.querySelectorAll('input:not([type=date]),textarea').forEach(i=>i.value='');f.querySelectorAll('select').forEach(i=>i.selectedIndex=0);f.amount.focus()},
+ clearAll(){if(!D.tx.length)return toast('Nothing to clear');if(!confirm('This will permanently delete ALL '+D.tx.length+' entries. Have you downloaded a backup?\n\nPress OK to continue.'))return;
+  if((prompt('Type CLEAR to confirm deleting everything:')||'').trim().toUpperCase()!=='CLEAR')return toast('Cancelled – nothing deleted');
+  D.tx=[];persist();toast('All entries cleared');draw()},
+ biz(){D.biz=$('#bn').value.trim()||D.biz;persist();toast('Saved ✓');draw()},
+ cat(){const n=$('#cn').value.trim(),k=$('#ck').value;if(!n)return;if(!D.cats[k].includes(n))D.cats[k].push(n);persist();toast('Category added');draw()}};
+if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+draw();
+</script></body></html>
